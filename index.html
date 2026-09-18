@@ -180,6 +180,10 @@
   .bar-bg{background:var(--bg-inset);border-radius:5px;height:6px;overflow:hidden;margin-top:5px;}
   .bar-fill{height:100%;border-radius:5px;}
   .imp-row select, .imp-row input{font-size:12.5px;padding:6px 8px;}
+  @media print{
+    header.top, nav.tabs, .no-print, button{ display:none !important; }
+    .panel{ box-shadow:none; border:1px solid #ccc; }
+  }
 </style>
 </head>
 <body>
@@ -205,6 +209,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-storage-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
 <script>
 /* =======================================================
    CONFIGURAÇÃO DO FIREBASE — troque pelos dados do SEU projeto
@@ -221,6 +227,7 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
+const storage = firebase.storage();
 const productsCol = db.collection('products');
 const movementsCol = db.collection('movements');
 const invoicesCol = db.collection('invoices');
@@ -415,7 +422,7 @@ function showToast(msg){
 function productByCode(code){ return state.products.find(p=>p.code===code); }
 
 /* ======================= MOVIMENTAÇÕES (Firestore) ======================= */
-async function registrarEntrada({productCode, qty, lote, validade, invoiceNumber, unitCost, fornecedor}){
+async function registrarEntrada({productCode, qty, lote, validade, invoiceNumber, unitCost, fornecedor, dataVencimento, statusNota}){
   const ref = productsCol.doc(productCode);
   const snap = await ref.get();
   if(!snap.exists){ showToast('Produto não encontrado.'); return; }
@@ -433,6 +440,8 @@ async function registrarEntrada({productCode, qty, lote, validade, invoiceNumber
     await invoicesCol.add({
       invoiceNumber, date: todayISO(), productCode, productName:p.name, qty,
       unitCost: unitCost||0, total: (unitCost||0)*qty, fornecedor: fornecedor||'',
+      status: statusNota || 'a_pagar', dataVencimento: dataVencimento || '',
+      arquivoUrl: '', arquivoNome: '',
       user: currentUserLabel(), ts: firebase.firestore.FieldValue.serverTimestamp()
     });
   }
@@ -474,9 +483,11 @@ const TABS = [
   {id:'entrada', label:'Entrada'},
   {id:'saida', label:'Saída'},
   {id:'compras', label:'Compras / NF'},
+  {id:'relatorios', label:'Relatórios'},
   {id:'alertas', label:'Alertas'},
   {id:'backup', label:'Backup'},
 ];
+const DIAS_PARADO_ALERTA = 30;
 
 function alertCount(){
   const low = state.products.filter(p=>stockStatus(p)!=='ok').length;
@@ -488,6 +499,30 @@ function alertCount(){
   return low+exp;
 }
 
+function ultimaMovimentacao(productCode){
+  const movs = state.movements.filter(m=>m.productCode===productCode);
+  if(!movs.length) return null;
+  return movs.reduce((a,b)=> (a.date>b.date? a:b)).date;
+}
+
+function produtosParados(){
+  return state.products.filter(p=>{
+    if(totalStock(p)<=0) return false;
+    const ultima = ultimaMovimentacao(p.code) || p.criadoEm || null;
+    if(!ultima) return false;
+    const d = daysUntil(ultima);
+    return d!==null && (-d) >= DIAS_PARADO_ALERTA;
+  }).map(p=>({ p, ultima: ultimaMovimentacao(p.code) || p.criadoEm }));
+}
+
+function invoiceAlertCount(){
+  return state.invoices.filter(i=>{
+    if((i.status||'a_pagar')!=='a_pagar' || !i.dataVencimento) return false;
+    const d = daysUntil(i.dataVencimento);
+    return d!==null && d<=7;
+  }).length;
+}
+
 function renderTabs(){
   const nav = document.getElementById('tabs');
   nav.innerHTML = '';
@@ -497,6 +532,14 @@ function renderTabs(){
     btn.className = t.id===currentTab ? 'active':'';
     if(t.id==='alertas'){
       const c = alertCount();
+      if(c>0){
+        const b = document.createElement('span');
+        b.className='badge'; b.textContent=c;
+        btn.appendChild(b);
+      }
+    }
+    if(t.id==='compras'){
+      const c = invoiceAlertCount();
       if(c>0){
         const b = document.createElement('span');
         b.className='badge'; b.textContent=c;
@@ -743,7 +786,7 @@ async function salvarProduto(){
     if(!code) code = nextCode(category);
     if(productByCode(code)){ showToast('Já existe um produto com esse código.'); return; }
     const batches = init>0 ? [{id:uid(), qty:init, lote:null, validade:null}] : [];
-    await productsCol.doc(code).set({ name, category, unit, location, min, max, lastCost:0, batches });
+    await productsCol.doc(code).set({ name, category, unit, location, min, max, lastCost:0, batches, criadoEm: todayISO() });
     if(init>0){
       await movementsCol.add({productCode:code, productName:name, type:'entrada', qty:init, date: todayISO(), detail:'Estoque inicial', user: currentUserLabel(), ts: firebase.firestore.FieldValue.serverTimestamp()});
     }
@@ -787,6 +830,12 @@ function renderEntrada(){
       <div class="field"><label>Nº da nota fiscal (opcional)</label><input id="e-nf" placeholder="Ex: 000123"></div>
       <div class="field"><label>Fornecedor (opcional)</label><input id="e-forn" placeholder="Nome do fornecedor"></div>
     </div>
+    <div class="row2">
+      <div class="field"><label>Data de vencimento da nota (opcional)</label><input id="e-venc" type="date"></div>
+      <div class="field"><label>Situação da nota</label>
+        <select id="e-status-nota"><option value="a_pagar">A pagar</option><option value="paga">Já paga</option></select>
+      </div>
+    </div>
     <button class="btn btn-primary" id="e-btn" onclick="confirmarEntrada()">Registrar entrada</button>
   </div>
   <div class="panel">
@@ -805,10 +854,12 @@ async function confirmarEntrada(){
   const unitCost = parseFloat(document.getElementById('e-cost').value) || 0;
   const invoiceNumber = document.getElementById('e-nf').value.trim();
   const fornecedor = document.getElementById('e-forn').value.trim();
+  const dataVencimento = document.getElementById('e-venc').value;
+  const statusNota = document.getElementById('e-status-nota').value;
 
   if(!qty || qty<=0){ showToast('Informe uma quantidade válida.'); return; }
   const btn = document.getElementById('e-btn'); btn.disabled = true;
-  await registrarEntrada({productCode, qty, lote, validade, invoiceNumber, unitCost, fornecedor});
+  await registrarEntrada({productCode, qty, lote, validade, invoiceNumber, unitCost, fornecedor, dataVencimento, statusNota});
   showToast('Entrada registrada.');
   renderEntrada();
 }
@@ -859,28 +910,65 @@ async function confirmarSaida(){
 }
 
 /* ======================= RENDER: COMPRAS / NF ======================= */
+function invoicesAPagar(){ return state.invoices.filter(i=>(i.status||'a_pagar')==='a_pagar'); }
+function invoicesVencidas(){
+  return invoicesAPagar().filter(i=> i.dataVencimento && daysUntil(i.dataVencimento) < 0);
+}
+function invoicesAVencer(){
+  return invoicesAPagar().filter(i=> i.dataVencimento && daysUntil(i.dataVencimento) >= 0 && daysUntil(i.dataVencimento) <= 7);
+}
+
 function renderCompras(){
   const total = state.invoices.reduce((s,i)=>s+i.total,0);
   const monthTotal = invoicesThisMonth().reduce((s,i)=>s+i.total,0);
+  const aPagar = invoicesAPagar();
+  const totalAPagar = aPagar.reduce((s,i)=>s+i.total,0);
+  const vencidas = invoicesVencidas();
+  const aVencer = invoicesAVencer();
+
   let html = `<div class="grid-cards">
     <div class="stat"><div class="num">${fmtMoney(monthTotal)}</div><div class="lbl">Compras este mês</div></div>
     <div class="stat"><div class="num">${fmtMoney(total)}</div><div class="lbl">Compras no total</div></div>
-    <div class="stat"><div class="num">${state.invoices.length}</div><div class="lbl">Notas registradas</div></div>
+    <div class="stat warn"><div class="num">${fmtMoney(totalAPagar)}</div><div class="lbl">A pagar (${aPagar.length})</div></div>
+    <div class="stat crit"><div class="num">${vencidas.length}</div><div class="lbl">Notas vencidas</div></div>
   </div>`;
+
+  if(vencidas.length || aVencer.length){
+    html += `<div class="panel"><h2>Contas a pagar — atenção</h2>`;
+    if(vencidas.length){
+      html += `<div class="banner crit"><strong>${vencidas.length} nota(s) vencida(s) e ainda não paga(s):</strong>&nbsp;
+        ${vencidas.map(i=>`${i.invoiceNumber} (${i.fornecedor||'—'}) ${fmtMoney(i.total)}`).join(' · ')}
+      </div>`;
+    }
+    if(aVencer.length){
+      html += `<div class="banner warn"><strong>${aVencer.length} nota(s) vencendo nos próximos 7 dias:</strong>&nbsp;
+        ${aVencer.map(i=>`${i.invoiceNumber} (${i.fornecedor||'—'}) ${fmtMoney(i.total)} — ${fmtDate(i.dataVencimento)}`).join(' · ')}
+      </div>`;
+    }
+    html += `</div>`;
+  }
 
   html += `<div class="panel">
     <h2>Importar nota fiscal (colar página da NF-e)</h2>
     <p class="muted" style="font-size:13px;">
-      Abra o link da nota (o mesmo que o QR Code da nota aponta), selecione tudo na página (Ctrl+A ou tocar e segurar → Selecionar tudo),
-      copie e cole aqui embaixo. O sistema tenta identificar os produtos, quantidades e valores automaticamente —
-      depois você confere e ajusta antes de confirmar.
+      <strong>Melhor opção — arquivo XML da nota:</strong> se o fornecedor disponibiliza o XML (procure no rodapé da nota, geralmente tem uma frase como
+      "o arquivo XML desta NF-e encontra-se disponível em..."), abra esse endereço, cole a chave de acesso da nota (os 44 números do código de barras)
+      e copie o conteúdo do XML que aparecer. É o formato mais confiável, pois segue o mesmo padrão em todo o Brasil.<br><br>
+      <strong>Alternativa — página de consulta:</strong> sem o XML, use o link do QR Code da nota ou a consulta pelo portal nacional da NF-e com a chave de acesso,
+      selecione tudo (Ctrl+A), copie e cole abaixo.
     </p>
     <div class="row2">
       <div class="field"><label>Nº da nota fiscal</label><input id="nf-numero" placeholder="Ex: 000123"></div>
       <div class="field"><label>Fornecedor</label><input id="nf-fornecedor" placeholder="Nome do fornecedor"></div>
     </div>
-    <div class="field"><label>Conteúdo copiado da nota (HTML ou texto da página)</label>
-      <textarea id="nf-html" rows="6" placeholder="Cole aqui o conteúdo copiado da página da nota fiscal..."></textarea>
+    <div class="row2">
+      <div class="field"><label>Data de vencimento (opcional)</label><input id="nf-venc" type="date"></div>
+      <div class="field"><label>Situação da nota</label>
+        <select id="nf-status"><option value="a_pagar">A pagar</option><option value="paga">Já paga</option></select>
+      </div>
+    </div>
+    <div class="field"><label>Conteúdo copiado da nota (XML da NF-e, de preferência — ou HTML/texto da página)</label>
+      <textarea id="nf-html" rows="6" placeholder="Cole aqui o XML da nota (começa com <?xml ...) ou o texto da página de consulta..."></textarea>
     </div>
     <button class="btn btn-secondary" onclick="analisarNota()">Analisar nota</button>
     <div id="nf-resultado" style="margin-top:16px;"></div>
@@ -895,19 +983,53 @@ function renderCompras(){
 
 function renderInvoicesTable(){
   return `<div class="tbl-wrap"><table>
-    <tr><th>Data</th><th>NF</th><th>Fornecedor</th><th>Produto</th><th>Qtd</th><th>Custo un.</th><th>Total</th><th>Lançado por</th></tr>
-    ${state.invoices.map(i=>`<tr>
-      <td>${fmtDate(i.date)}</td>
-      <td>${i.invoiceNumber}</td>
-      <td>${i.fornecedor||'—'}</td>
-      <td>${i.productName}</td>
-      <td>${i.qty}</td>
-      <td>${fmtMoney(i.unitCost)}</td>
-      <td>${fmtMoney(i.total)}</td>
-      <td class="muted">${i.user||'—'}</td>
-    </tr>`).join('')}
+    <tr><th>Data</th><th>NF</th><th>Fornecedor</th><th>Produto</th><th>Total</th><th>Vencimento</th><th>Situação</th><th>Arquivo</th><th></th></tr>
+    ${state.invoices.map(i=>{
+      const status = i.status||'a_pagar';
+      const vencida = status==='a_pagar' && i.dataVencimento && daysUntil(i.dataVencimento)<0;
+      const pillClass = status==='paga' ? 'ok' : (vencida ? 'crit' : 'warn');
+      const pillLabel = status==='paga' ? 'Paga' : (vencida ? 'Vencida' : 'A pagar');
+      return `<tr>
+        <td>${fmtDate(i.date)}</td>
+        <td>${i.invoiceNumber}</td>
+        <td>${i.fornecedor||'—'}</td>
+        <td>${i.productName}</td>
+        <td>${fmtMoney(i.total)}</td>
+        <td>${i.dataVencimento? fmtDate(i.dataVencimento) : '—'}</td>
+        <td><span class="pill ${pillClass}">${pillLabel}</span></td>
+        <td>
+          ${i.arquivoUrl? `<a href="${i.arquivoUrl}" target="_blank" rel="noopener">ver arquivo</a>` : `<input type="file" style="font-size:11px;width:110px;" onchange="anexarArquivoNota('${i.id}', this)">`}
+        </td>
+        <td class="right">
+          ${status==='a_pagar' ? `<button class="btn btn-secondary btn-sm" onclick="marcarStatusNota('${i.id}','paga')">Marcar paga</button>` : `<button class="btn btn-secondary btn-sm" onclick="marcarStatusNota('${i.id}','a_pagar')">Reabrir</button>`}
+        </td>
+      </tr>`;
+    }).join('')}
   </table></div>`;
 }
+
+async function marcarStatusNota(id, novoStatus){
+  await invoicesCol.doc(id).update({ status: novoStatus });
+  showToast(novoStatus==='paga' ? 'Nota marcada como paga.' : 'Nota reaberta como a pagar.');
+}
+
+async function anexarArquivoNota(id, input){
+  const file = input.files[0];
+  if(!file) return;
+  try{
+    showToast('Enviando arquivo...');
+    const path = `notas/${id}/${Date.now()}_${file.name}`;
+    const ref = storage.ref().child(path);
+    await ref.put(file);
+    const url = await ref.getDownloadURL();
+    await invoicesCol.doc(id).update({ arquivoUrl: url, arquivoNome: file.name });
+    showToast('Arquivo anexado à nota.');
+  }catch(e){
+    showToast('Erro ao enviar arquivo: '+e.message);
+  }
+}
+
+
 
 /* ---- Análise (parser) da página da nota fiscal ---- */
 function parseNumeroBR(txt){
@@ -919,6 +1041,40 @@ function parseNumeroBR(txt){
   const normalizado = semMilhar.replace(',', '.');
   const n = parseFloat(normalizado);
   return isNaN(n) ? 0 : n;
+}
+
+function tentarExtrairXmlNFe(texto){
+  try{
+    const xmlDoc = new DOMParser().parseFromString(texto, 'application/xml');
+    if(xmlDoc.getElementsByTagName('parsererror').length) return null;
+    const dets = Array.from(xmlDoc.getElementsByTagName('det'));
+    if(!dets.length) return null;
+    const getTxt = (el, tag)=>{
+      const nodes = el.getElementsByTagName(tag);
+      return nodes.length ? nodes[0].textContent.trim() : '';
+    };
+    const itens = dets.map(det=>{
+      const prodNodes = det.getElementsByTagName('prod');
+      const prod = prodNodes.length ? prodNodes[0] : det;
+      const codigoNota = getTxt(prod,'cProd');
+      const descricao = getTxt(prod,'xProd');
+      const quantidade = parseFloat(getTxt(prod,'qCom'))||0;
+      const valorUnit = parseFloat(getTxt(prod,'vUnCom'))||0;
+      let valorTotal = parseFloat(getTxt(prod,'vProd'))||0;
+      if(!valorTotal) valorTotal = quantidade*valorUnit;
+      return { codigoNota, descricao, quantidade, valorUnit, valorTotal };
+    }).filter(it=> it.descricao && it.quantidade>0);
+
+    const nNFNodes = xmlDoc.getElementsByTagName('nNF');
+    const nNF = nNFNodes.length ? nNFNodes[0].textContent.trim() : '';
+    const emitNodes = xmlDoc.getElementsByTagName('emit');
+    let fornecedor = '';
+    if(emitNodes.length){
+      const xNomeNodes = emitNodes[0].getElementsByTagName('xNome');
+      if(xNomeNodes.length) fornecedor = xNomeNodes[0].textContent.trim();
+    }
+    return { itens, nNF, fornecedor };
+  }catch(e){ return null; }
 }
 
 function extrairItensDaNota(texto){
@@ -1001,7 +1157,19 @@ function melhorMatch(descricao){
 function analisarNota(){
   const texto = document.getElementById('nf-html').value;
   if(!texto.trim()){ showToast('Cole o conteúdo da nota primeiro.'); return; }
-  const itens = extrairItensDaNota(texto);
+
+  const xmlResult = tentarExtrairXmlNFe(texto);
+  let itens;
+  if(xmlResult && xmlResult.itens.length){
+    itens = xmlResult.itens;
+    const campoNF = document.getElementById('nf-numero');
+    const campoForn = document.getElementById('nf-fornecedor');
+    if(xmlResult.nNF && !campoNF.value) campoNF.value = xmlResult.nNF;
+    if(xmlResult.fornecedor && !campoForn.value) campoForn.value = xmlResult.fornecedor;
+    showToast('Nota lida como XML da NF-e (mais confiável).');
+  } else {
+    itens = extrairItensDaNota(texto);
+  }
   parsedNfItems = itens.map(it=>{
     const match = melhorMatch(it.descricao);
     return { ...it, productCode: match? match.code : '' };
@@ -1035,12 +1203,14 @@ function renderRevisaoNota(){
 async function confirmarImportacaoNota(){
   const invoiceNumber = document.getElementById('nf-numero').value.trim();
   const fornecedor = document.getElementById('nf-fornecedor').value.trim();
+  const dataVencimento = document.getElementById('nf-venc').value;
+  const statusNota = document.getElementById('nf-status').value;
   const validos = parsedNfItems.filter(it=>it.productCode && it.quantidade>0);
   if(!validos.length){ showToast('Selecione ao menos um produto para importar.'); return; }
   for(const it of validos){
     await registrarEntrada({
       productCode: it.productCode, qty: it.quantidade, lote:'', validade:'',
-      invoiceNumber, unitCost: it.valorUnit, fornecedor
+      invoiceNumber, unitCost: it.valorUnit, fornecedor, dataVencimento, statusNota
     });
   }
   showToast(`${validos.length} item(ns) importado(s) da nota.`);
@@ -1049,6 +1219,111 @@ async function confirmarImportacaoNota(){
 }
 
 /* ======================= RENDER: ALERTAS ======================= */
+/* ======================= RENDER: RELATÓRIOS ======================= */
+let chartComprasInstance = null;
+
+function ultimosNMeses(n){
+  const meses = [];
+  const d = new Date();
+  for(let i=n-1;i>=0;i--){
+    const dt = new Date(d.getFullYear(), d.getMonth()-i, 1);
+    meses.push(dt.toISOString().slice(0,7));
+  }
+  return meses;
+}
+function nomeMes(ym){
+  const [y,m] = ym.split('-');
+  const nomes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  return nomes[parseInt(m,10)-1] + '/' + y.slice(2);
+}
+
+function renderRelatorios(){
+  const meses = ultimosNMeses(6);
+  const valoresPorMes = meses.map(ym => state.invoices.filter(i=>i.date && i.date.slice(0,7)===ym).reduce((s,i)=>s+i.total,0));
+
+  const perdas = state.movements.filter(m=>m.type==='saida' && (m.detail||'').toLowerCase().includes('perda'));
+  const perdasComValor = perdas.map(m=>{
+    const p = productByCode(m.productCode);
+    const valor = p ? m.qty*(p.lastCost||0) : 0;
+    return { ...m, valor };
+  });
+  const totalPerdaValor = perdasComValor.reduce((s,m)=>s+m.valor,0);
+
+  const parados = produtosParados();
+
+  let html = `<div class="panel">
+    <h2>Compras por mês (últimos 6 meses)</h2>
+    <canvas id="chart-compras" height="90"></canvas>
+  </div>`;
+
+  html += `<div class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <h2 style="margin:0;">Contagem de estoque — relatório semanal</h2>
+      <button class="btn btn-secondary btn-sm no-print" onclick="window.print()">Imprimir / exportar</button>
+    </div>
+    <p class="muted" style="font-size:12.5px;">Use esta lista para a contagem física semanal — confira o que o sistema mostra contra o que está na câmara.</p>
+    <div class="tbl-wrap"><table>
+      <tr><th>Código</th><th>Produto</th><th>Local</th><th>Qtd. no sistema</th><th>Confere?</th></tr>
+      ${state.products.map(p=>`<tr>
+        <td><code class="code">${p.code}</code></td>
+        <td>${p.name}</td>
+        <td>${p.location||'—'}</td>
+        <td>${totalStock(p)} ${p.unit}</td>
+        <td class="muted">______</td>
+      </tr>`).join('')}
+    </table></div>
+  </div>`;
+
+  html += `<div class="panel">
+    <h2>Produtos perdidos por vencimento</h2>
+    ${perdasComValor.length ? `
+      <div class="banner crit">Total estimado perdido: <strong>${fmtMoney(totalPerdaValor)}</strong> em ${perdasComValor.length} registro(s).</div>
+      <div class="tbl-wrap"><table>
+        <tr><th>Data</th><th>Produto</th><th>Qtd</th><th>Valor estimado</th><th>Usuário</th></tr>
+        ${perdasComValor.map(m=>`<tr>
+          <td>${fmtDate(m.date)}</td>
+          <td>${m.productName}</td>
+          <td>${m.qty}</td>
+          <td>${fmtMoney(m.valor)}</td>
+          <td class="muted">${m.user||'—'}</td>
+        </tr>`).join('')}
+      </table></div>
+    ` : '<p class="empty">Nenhuma perda por vencimento registrada (saídas com motivo "Perda / vencimento").</p>'}
+  </div>`;
+
+  html += `<div class="panel">
+    <h2>Produtos parados há mais de ${DIAS_PARADO_ALERTA} dias</h2>
+    ${parados.length ? `<div class="tbl-wrap"><table>
+      <tr><th>Código</th><th>Produto</th><th>Estoque atual</th><th>Sem movimentação desde</th><th>Dias parado</th></tr>
+      ${parados.map(({p,ultima})=>`<tr>
+        <td><code class="code">${p.code}</code></td>
+        <td>${p.name}</td>
+        <td>${totalStock(p)} ${p.unit}</td>
+        <td>${fmtDate(ultima)}</td>
+        <td><span class="pill warn">${Math.abs(daysUntil(ultima))} dias</span></td>
+      </tr>`).join('')}
+    </table></div>` : '<p class="empty">Nenhum produto parado além do limite configurado.</p>'}
+  </div>`;
+
+  document.getElementById('content').innerHTML = html;
+
+  if(chartComprasInstance) chartComprasInstance.destroy();
+  const ctx = document.getElementById('chart-compras');
+  if(ctx && window.Chart){
+    chartComprasInstance = new Chart(ctx, {
+      type:'bar',
+      data:{
+        labels: meses.map(nomeMes),
+        datasets:[{ label:'Total comprado', data:valoresPorMes, backgroundColor:'#C9862B', borderRadius:4 }]
+      },
+      options:{
+        plugins:{ legend:{ display:false } },
+        scales:{ y:{ beginAtZero:true, ticks:{ callback:(v)=>fmtMoney(v) } } }
+      }
+    });
+  }
+}
+
 function renderAlertas(){
   const low = state.products.filter(p=>stockStatus(p)!=='ok');
   const exp = state.products
@@ -1164,6 +1439,7 @@ function render(){
   else if(currentTab==='entrada') renderEntrada();
   else if(currentTab==='saida') renderSaida();
   else if(currentTab==='compras') renderCompras();
+  else if(currentTab==='relatorios') renderRelatorios();
   else if(currentTab==='alertas') renderAlertas();
   else if(currentTab==='backup') renderBackup();
 }
