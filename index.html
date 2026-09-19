@@ -180,6 +180,9 @@
   .bar-bg{background:var(--bg-inset);border-radius:5px;height:6px;overflow:hidden;margin-top:5px;}
   .bar-fill{height:100%;border-radius:5px;}
   .imp-row select, .imp-row input{font-size:12.5px;padding:6px 8px;}
+  .search-wrap{position:relative;}
+  .search-wrap .search-icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:14px;color:var(--ink-soft);pointer-events:none;}
+  .search-wrap input{padding-left:34px;}
   @media print{
     header.top, nav.tabs, .no-print, button{ display:none !important; }
     .panel{ box-shadow:none; border:1px solid #ccc; }
@@ -422,23 +425,24 @@ function showToast(msg){
 function productByCode(code){ return state.products.find(p=>p.code===code); }
 
 /* ======================= MOVIMENTAÇÕES (Firestore) ======================= */
-async function registrarEntrada({productCode, qty, lote, validade, invoiceNumber, unitCost, fornecedor, dataVencimento, statusNota}){
+async function registrarEntrada({productCode, qty, lote, validade, invoiceNumber, unitCost, fornecedor, dataVencimento, statusNota, dataMovimento}){
   const ref = productsCol.doc(productCode);
   const snap = await ref.get();
   if(!snap.exists){ showToast('Produto não encontrado.'); return; }
   const p = snap.data();
+  const dataFinal = dataMovimento || todayISO();
   const batches = (p.batches||[]).concat([{ id: uid(), qty, lote: lote||null, validade: validade||null }]);
   const updates = { batches };
   if(unitCost){ updates.lastCost = unitCost; }
   await ref.update(updates);
   await movementsCol.add({
-    productCode, productName:p.name, type:'entrada', qty, date: todayISO(),
+    productCode, productName:p.name, type:'entrada', qty, date: dataFinal,
     detail: lote ? `Lote ${lote}` : '', user: currentUserLabel(),
     ts: firebase.firestore.FieldValue.serverTimestamp()
   });
   if(invoiceNumber){
     await invoicesCol.add({
-      invoiceNumber, date: todayISO(), productCode, productName:p.name, qty,
+      invoiceNumber, date: dataFinal, productCode, productName:p.name, qty,
       unitCost: unitCost||0, total: (unitCost||0)*qty, fornecedor: fornecedor||'',
       status: statusNota || 'a_pagar', dataVencimento: dataVencimento || '',
       arquivoUrl: '', arquivoNome: '',
@@ -704,7 +708,7 @@ function renderProdutos(){
   <div class="panel">
     <h2>Produtos cadastrados (${state.products.length})</h2>
     <div class="row2" style="margin-bottom:12px;">
-      <div class="field" style="margin-bottom:0;"><input id="f-search" placeholder="Buscar por nome ou código..." oninput="filtrarProdutos()"></div>
+      <div class="field search-wrap" style="margin-bottom:0;"><span class="search-icon">🔍</span><input id="f-search" placeholder="Buscar por nome ou código..." oninput="filtrarProdutos()"></div>
       <div class="field" style="margin-bottom:0;"><select id="f-filtro-cat" onchange="filtrarProdutos()">
         <option value="">Todas as câmaras/categorias</option>
         ${CATEGORIES.map(c=>`<option value="${c[0]}">${c[0]}</option>`).join('')}
@@ -1058,11 +1062,12 @@ function tentarExtrairXmlNFe(texto){
       const prod = prodNodes.length ? prodNodes[0] : det;
       const codigoNota = getTxt(prod,'cProd');
       const descricao = getTxt(prod,'xProd');
+      const unidade = (getTxt(prod,'uCom')||'un').toLowerCase();
       const quantidade = parseFloat(getTxt(prod,'qCom'))||0;
       const valorUnit = parseFloat(getTxt(prod,'vUnCom'))||0;
       let valorTotal = parseFloat(getTxt(prod,'vProd'))||0;
       if(!valorTotal) valorTotal = quantidade*valorUnit;
-      return { codigoNota, descricao, quantidade, valorUnit, valorTotal };
+      return { codigoNota, descricao, unidade, quantidade, valorUnit, valorTotal };
     }).filter(it=> it.descricao && it.quantidade>0);
 
     const nNFNodes = xmlDoc.getElementsByTagName('nNF');
@@ -1073,7 +1078,13 @@ function tentarExtrairXmlNFe(texto){
       const xNomeNodes = emitNodes[0].getElementsByTagName('xNome');
       if(xNomeNodes.length) fornecedor = xNomeNodes[0].textContent.trim();
     }
-    return { itens, nNF, fornecedor };
+    let dataEmissao = '';
+    const ideNodes = xmlDoc.getElementsByTagName('ide');
+    if(ideNodes.length){
+      const dh = ideNodes[0].getElementsByTagName('dhEmi')[0] || ideNodes[0].getElementsByTagName('dEmi')[0];
+      if(dh && dh.textContent) dataEmissao = dh.textContent.trim().slice(0,10);
+    }
+    return { itens, nNF, fornecedor, dataEmissao };
   }catch(e){ return null; }
 }
 
@@ -1154,25 +1165,29 @@ function melhorMatch(descricao){
   return melhorScore>=10 ? melhor : null;
 }
 
+let ultimaDataEmissaoNota = '';
+
 function analisarNota(){
   const texto = document.getElementById('nf-html').value;
   if(!texto.trim()){ showToast('Cole o conteúdo da nota primeiro.'); return; }
 
   const xmlResult = tentarExtrairXmlNFe(texto);
   let itens;
+  ultimaDataEmissaoNota = '';
   if(xmlResult && xmlResult.itens.length){
     itens = xmlResult.itens;
     const campoNF = document.getElementById('nf-numero');
     const campoForn = document.getElementById('nf-fornecedor');
     if(xmlResult.nNF && !campoNF.value) campoNF.value = xmlResult.nNF;
     if(xmlResult.fornecedor && !campoForn.value) campoForn.value = xmlResult.fornecedor;
-    showToast('Nota lida como XML da NF-e (mais confiável).');
+    ultimaDataEmissaoNota = xmlResult.dataEmissao || '';
+    showToast('Nota lida como XML da NF-e — produtos, valores e datas identificados automaticamente.');
   } else {
     itens = extrairItensDaNota(texto);
   }
   parsedNfItems = itens.map(it=>{
     const match = melhorMatch(it.descricao);
-    return { ...it, productCode: match? match.code : '' };
+    return { ...it, productCode: match ? match.code : '__new__' };
   });
   document.getElementById('nf-resultado').innerHTML = renderRevisaoNota();
 }
@@ -1181,7 +1196,9 @@ function renderRevisaoNota(){
   if(!parsedNfItems.length){
     return `<div class="banner warn">Não consegui identificar itens automaticamente nesse conteúdo. Confira se colou a página inteira da nota (com a tabela de produtos), ou lance manualmente na aba Entrada.</div>`;
   }
-  const prodOpts = (selecionado)=> `<option value="">— não importar —</option>` + state.products.map(p=>
+  const qtdNovos = parsedNfItems.filter(it=>it.productCode==='__new__').length;
+  const prodOpts = (selecionado)=> `<option value="__new__" ${selecionado==='__new__'?'selected':''}>➕ Criar produto novo automaticamente</option>` +
+    `<option value="">— não importar —</option>` + state.products.map(p=>
     `<option value="${p.code}" ${p.code===selecionado?'selected':''}>${p.code} — ${p.name}</option>`).join('');
   const rows = parsedNfItems.map((it,idx)=>`
     <tr class="imp-row">
@@ -1191,13 +1208,27 @@ function renderRevisaoNota(){
       <td><input type="number" step="0.01" value="${it.valorUnit.toFixed(2)}" onchange="parsedNfItems[${idx}].valorUnit=parseFloat(this.value)||0" style="width:90px;"></td>
     </tr>`).join('');
   return `
-    <div class="banner info">Confira o produto de cada linha antes de confirmar. Linhas sem produto selecionado não serão importadas.</div>
+    <div class="banner info">
+      Tudo pronto para importar automaticamente${qtdNovos? ` — <strong>${qtdNovos} produto(s) novo(s)</strong> serão criados no cadastro`:''}.
+      Se algum item deveria cair em cima de um produto já existente, troque na lista antes de confirmar.
+    </div>
     <div class="tbl-wrap"><table>
       <tr><th>Descrição na nota</th><th>Produto no sistema</th><th>Qtd</th><th>Valor unit.</th></tr>
       ${rows}
     </table></div>
-    <button class="btn btn-primary" style="margin-top:12px;" onclick="confirmarImportacaoNota()">Confirmar e lançar entradas</button>
+    <button class="btn btn-primary" style="margin-top:12px;" onclick="confirmarImportacaoNota()">Carregar nota automaticamente</button>
   `;
+}
+
+async function garantirProdutoParaImportacao(it){
+  if(it.productCode && it.productCode!=='__new__') return it.productCode;
+  let code = it.codigoNota ? it.codigoNota.toUpperCase().replace(/[^A-Z0-9.]/g,'') : '';
+  if(!code || productByCode(code)) code = nextCode('Outros');
+  await productsCol.doc(code).set({
+    name: it.descricao, category:'Outros', unit: it.unidade||'un', location:'',
+    min:0, max:0, lastCost:0, batches:[], criadoEm: todayISO()
+  });
+  return code;
 }
 
 async function confirmarImportacaoNota(){
@@ -1205,15 +1236,20 @@ async function confirmarImportacaoNota(){
   const fornecedor = document.getElementById('nf-fornecedor').value.trim();
   const dataVencimento = document.getElementById('nf-venc').value;
   const statusNota = document.getElementById('nf-status').value;
-  const validos = parsedNfItems.filter(it=>it.productCode && it.quantidade>0);
-  if(!validos.length){ showToast('Selecione ao menos um produto para importar.'); return; }
+  const validos = parsedNfItems.filter(it=>it.productCode!=='' && it.quantidade>0);
+  if(!validos.length){ showToast('Nenhum item para importar.'); return; }
+  let criados = 0, existentes = 0;
   for(const it of validos){
+    const eraNovo = it.productCode==='__new__';
+    const code = await garantirProdutoParaImportacao(it);
+    if(eraNovo) criados++; else existentes++;
     await registrarEntrada({
-      productCode: it.productCode, qty: it.quantidade, lote:'', validade:'',
-      invoiceNumber, unitCost: it.valorUnit, fornecedor, dataVencimento, statusNota
+      productCode: code, qty: it.quantidade, lote:'', validade:'',
+      invoiceNumber, unitCost: it.valorUnit, fornecedor, dataVencimento, statusNota,
+      dataMovimento: ultimaDataEmissaoNota
     });
   }
-  showToast(`${validos.length} item(ns) importado(s) da nota.`);
+  showToast(`Nota carregada: ${existentes} produto(s) já cadastrado(s) atualizados e ${criados} novo(s) criado(s).`);
   parsedNfItems = [];
   renderCompras();
 }
@@ -1239,7 +1275,13 @@ function nomeMes(ym){
 
 function renderRelatorios(){
   const meses = ultimosNMeses(6);
-  const valoresPorMes = meses.map(ym => state.invoices.filter(i=>i.date && i.date.slice(0,7)===ym).reduce((s,i)=>s+i.total,0));
+  const entradasPorMes = meses.map(ym => state.invoices.filter(i=>i.date && i.date.slice(0,7)===ym).reduce((s,i)=>s+i.total,0));
+  const saidasPorMes = meses.map(ym => state.movements
+    .filter(m=>m.type==='saida' && m.date && m.date.slice(0,7)===ym)
+    .reduce((s,m)=>{ const p=productByCode(m.productCode); return s + m.qty*(p?(p.lastCost||0):0); },0));
+  const saldoPorMes = meses.map((ym,i)=> entradasPorMes[i]-saidasPorMes[i]);
+  const totalEntradas = entradasPorMes.reduce((a,b)=>a+b,0);
+  const totalSaidas = saidasPorMes.reduce((a,b)=>a+b,0);
 
   const perdas = state.movements.filter(m=>m.type==='saida' && (m.detail||'').toLowerCase().includes('perda'));
   const perdasComValor = perdas.map(m=>{
@@ -1252,8 +1294,14 @@ function renderRelatorios(){
   const parados = produtosParados();
 
   let html = `<div class="panel">
-    <h2>Compras por mês (últimos 6 meses)</h2>
+    <h2>Estatísticas dos últimos 6 meses — entradas x saídas</h2>
     <canvas id="chart-compras" height="90"></canvas>
+    <div class="grid-cards" style="margin-top:14px;">
+      <div class="stat ok"><div class="num">${fmtMoney(totalEntradas)}</div><div class="lbl">Total de entradas (compras)</div></div>
+      <div class="stat crit"><div class="num">${fmtMoney(totalSaidas)}</div><div class="lbl">Total de saídas (valor estimado)</div></div>
+      <div class="stat"><div class="num">${fmtMoney(totalEntradas-totalSaidas)}</div><div class="lbl">Saldo no período</div></div>
+    </div>
+    <p class="muted" style="font-size:11.5px;margin-top:8px;">Saídas em valor são uma estimativa (quantidade retirada × custo mais recente do produto), já que o custo de cada saída não é registrado individualmente.</p>
   </div>`;
 
   html += `<div class="panel">
@@ -1314,10 +1362,14 @@ function renderRelatorios(){
       type:'bar',
       data:{
         labels: meses.map(nomeMes),
-        datasets:[{ label:'Total comprado', data:valoresPorMes, backgroundColor:'#C9862B', borderRadius:4 }]
+        datasets:[
+          { label:'Entradas', data:entradasPorMes, backgroundColor:'#4C7A4A', borderRadius:4 },
+          { label:'Saídas', data:saidasPorMes, backgroundColor:'#A63D2F', borderRadius:4 },
+          { label:'Saldo', data:saldoPorMes, backgroundColor:'#C9862B', borderRadius:4 }
+        ]
       },
       options:{
-        plugins:{ legend:{ display:false } },
+        plugins:{ legend:{ display:true, position:'bottom' } },
         scales:{ y:{ beginAtZero:true, ticks:{ callback:(v)=>fmtMoney(v) } } }
       }
     });
