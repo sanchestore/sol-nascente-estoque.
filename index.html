@@ -183,6 +183,14 @@
   .search-wrap{position:relative;}
   .search-wrap .search-icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:14px;color:var(--ink-soft);pointer-events:none;}
   .search-wrap input{padding-left:34px;}
+  .product-picker{position:relative;}
+  .picker-list{position:absolute;z-index:30;top:100%;left:0;right:0;background:#fff;border:1px solid var(--line-strong);
+    border-radius:8px;max-height:230px;overflow-y:auto;margin-top:4px;box-shadow:0 6px 18px rgba(46,29,20,.15);display:none;}
+  .picker-list.show{display:block;}
+  .picker-item{padding:8px 12px;font-size:13.5px;cursor:pointer;border-bottom:1px solid var(--line);}
+  .picker-item:last-child{border-bottom:none;}
+  .picker-item:hover{background:var(--bg-inset);}
+  .picker-item small{display:block;color:var(--ink-soft);font-size:11px;margin-top:1px;}
   @media print{
     header.top, nav.tabs, .no-print, button{ display:none !important; }
     .panel{ box-shadow:none; border:1px solid #ccc; }
@@ -423,6 +431,53 @@ function showToast(msg){
   setTimeout(()=>el.remove(), 2600);
 }
 function productByCode(code){ return state.products.find(p=>p.code===code); }
+
+/* ======================= SELETOR DE PRODUTO COM BUSCA (lupa) ======================= */
+function pickerHtml(prefix, label, selectedCode){
+  const p = selectedCode ? productByCode(selectedCode) : null;
+  const displayVal = p ? `${p.code} — ${p.name}` : '';
+  return `<div class="field product-picker">
+    <label>${label}</label>
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="${prefix}-prod-display" autocomplete="off" placeholder="Buscar por nome ou código..."
+        value="${displayVal}"
+        oninput="filtrarPicker('${prefix}')" onfocus="filtrarPicker('${prefix}')"
+        onblur="setTimeout(()=>fecharPicker('${prefix}'),150)">
+    </div>
+    <input type="hidden" id="${prefix}-prod" value="${selectedCode||''}">
+    <div class="picker-list" id="${prefix}-prod-list"></div>
+  </div>`;
+}
+function filtrarPicker(prefix){
+  const inputEl = document.getElementById(prefix+'-prod-display');
+  const list = document.getElementById(prefix+'-prod-list');
+  if(!inputEl || !list) return;
+  const q = (inputEl.value||'').toLowerCase().trim();
+  const matches = state.products
+    .filter(p=> !q || p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q))
+    .slice(0,40);
+  if(!matches.length){
+    list.innerHTML = '<div class="picker-item muted">Nenhum produto encontrado</div>';
+  } else {
+    list.innerHTML = matches.map(p=>`<div class="picker-item" onmousedown="selecionarPicker('${prefix}','${p.code}')">
+      ${p.name}<small>${p.code}${p.location? ' · '+p.location:''} — ${totalStock(p)} ${p.unit} em estoque</small>
+    </div>`).join('');
+  }
+  list.classList.add('show');
+}
+function fecharPicker(prefix){
+  const list = document.getElementById(prefix+'-prod-list');
+  if(list) list.classList.remove('show');
+}
+function selecionarPicker(prefix, code){
+  const p = productByCode(code);
+  const hidden = document.getElementById(prefix+'-prod');
+  const display = document.getElementById(prefix+'-prod-display');
+  if(hidden) hidden.value = code;
+  if(display) display.value = p ? `${p.code} — ${p.name}` : code;
+  fecharPicker(prefix);
+}
 
 /* ======================= MOVIMENTAÇÕES (Firestore) ======================= */
 async function registrarEntrada({productCode, qty, lote, validade, invoiceNumber, unitCost, fornecedor, dataVencimento, statusNota, dataMovimento}){
@@ -818,11 +873,10 @@ function renderEntrada(){
     document.getElementById('content').innerHTML = `<div class="panel"><p class="empty">Cadastre um produto primeiro na aba <strong>Produtos</strong>.</p></div>`;
     return;
   }
-  const opts = state.products.map(p=>`<option value="${p.code}" ${entradaPreselect===p.code?'selected':''}>${p.code} — ${p.name}</option>`).join('');
   const html = `<div class="panel">
     <h2>Registrar entrada de mercadoria</h2>
     <div class="row2">
-      <div class="field"><label>Produto</label><select id="e-prod">${opts}</select></div>
+      ${pickerHtml('e','Produto', entradaPreselect)}
       <div class="field"><label>Quantidade recebida</label><input id="e-qty" type="number" min="0" step="0.01" placeholder="0"></div>
     </div>
     <div class="row3">
@@ -852,6 +906,7 @@ function renderEntrada(){
 
 async function confirmarEntrada(){
   const productCode = document.getElementById('e-prod').value;
+  if(!productCode){ showToast('Busque e selecione um produto.'); return; }
   const qty = parseFloat(document.getElementById('e-qty').value);
   const lote = document.getElementById('e-lote').value.trim();
   const validade = document.getElementById('e-val').value;
@@ -874,11 +929,10 @@ function renderSaida(){
     document.getElementById('content').innerHTML = `<div class="panel"><p class="empty">Cadastre um produto primeiro na aba <strong>Produtos</strong>.</p></div>`;
     return;
   }
-  const opts = state.products.map(p=>`<option value="${p.code}">${p.code} — ${p.name} (${totalStock(p)} ${p.unit} em estoque)</option>`).join('');
   const html = `<div class="panel">
     <h2>Registrar saída de produto</h2>
     <div class="row2">
-      <div class="field"><label>Produto</label><select id="s-prod">${opts}</select></div>
+      ${pickerHtml('s','Produto', null)}
       <div class="field"><label>Quantidade retirada</label><input id="s-qty" type="number" min="0" step="0.01" placeholder="0"></div>
     </div>
     <div class="field"><label>Motivo</label>
@@ -902,6 +956,7 @@ function renderSaida(){
 
 async function confirmarSaida(){
   const productCode = document.getElementById('s-prod').value;
+  if(!productCode){ showToast('Busque e selecione um produto.'); return; }
   const qty = parseFloat(document.getElementById('s-qty').value);
   const motivo = document.getElementById('s-motivo').value;
   if(!qty || qty<=0){ showToast('Informe uma quantidade válida.'); return; }
@@ -1254,9 +1309,10 @@ async function confirmarImportacaoNota(){
   renderCompras();
 }
 
-/* ======================= RENDER: ALERTAS ======================= */
 /* ======================= RENDER: RELATÓRIOS ======================= */
 let chartComprasInstance = null;
+let chartCategoriaInstance = null;
+let chartPerdasInstance = null;
 
 function ultimosNMeses(n){
   const meses = [];
@@ -1271,6 +1327,21 @@ function nomeMes(ym){
   const [y,m] = ym.split('-');
   const nomes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
   return nomes[parseInt(m,10)-1] + '/' + y.slice(2);
+}
+
+function curvaABC(){
+  const itens = state.products
+    .map(p=>({ p, valor: totalStock(p)*(p.lastCost||0) }))
+    .filter(x=>x.valor>0)
+    .sort((a,b)=>b.valor-a.valor);
+  const totalValor = itens.reduce((s,x)=>s+x.valor,0);
+  let acumulado = 0;
+  return itens.map(x=>{
+    acumulado += x.valor;
+    const pctAcumulado = totalValor>0 ? (acumulado/totalValor)*100 : 0;
+    const classe = pctAcumulado<=80 ? 'A' : (pctAcumulado<=95 ? 'B' : 'C');
+    return { ...x, pctAcumulado, classe };
+  });
 }
 
 function renderRelatorios(){
@@ -1290,8 +1361,19 @@ function renderRelatorios(){
     return { ...m, valor };
   });
   const totalPerdaValor = perdasComValor.reduce((s,m)=>s+m.valor,0);
+  const perdaPorMes = meses.map(ym => perdasComValor.filter(m=>m.date && m.date.slice(0,7)===ym).reduce((s,m)=>s+m.valor,0));
 
   const parados = produtosParados();
+  const abc = curvaABC();
+  const totalValorEstoque = abc.reduce((s,x)=>s+x.valor,0);
+  const countA = abc.filter(x=>x.classe==='A').length;
+  const countB = abc.filter(x=>x.classe==='B').length;
+  const countC = abc.filter(x=>x.classe==='C').length;
+
+  const categorias = Object.keys(CAMARA_INFO).filter(cat=>
+    state.products.some(p=>p.category===cat && totalStock(p)*(p.lastCost||0)>0));
+  const valorPorCategoria = categorias.map(cat=>
+    state.products.filter(p=>p.category===cat).reduce((s,p)=>s+totalStock(p)*(p.lastCost||0),0));
 
   let html = `<div class="panel">
     <h2>Estatísticas dos últimos 6 meses — entradas x saídas</h2>
@@ -1304,20 +1386,53 @@ function renderRelatorios(){
     <p class="muted" style="font-size:11.5px;margin-top:8px;">Saídas em valor são uma estimativa (quantidade retirada × custo mais recente do produto), já que o custo de cada saída não é registrado individualmente.</p>
   </div>`;
 
+  if(categorias.length){
+    html += `<div class="panel">
+      <h2>Valor de estoque por câmara</h2>
+      <div style="max-width:420px;margin:0 auto;"><canvas id="chart-categoria" height="220"></canvas></div>
+    </div>`;
+  }
+
+  html += `<div class="panel">
+    <h2>Curva ABC de produtos</h2>
+    <p class="muted" style="font-size:12.5px;">Classifica os produtos pelo valor parado em estoque: <strong>A</strong> são os que concentram até 80% do valor total (prioridade máxima de controle), <strong>B</strong> de 80% a 95%, e <strong>C</strong> o restante.</p>
+    <div class="grid-cards">
+      <div class="stat crit"><div class="num">${countA}</div><div class="lbl">Produtos classe A</div></div>
+      <div class="stat warn"><div class="num">${countB}</div><div class="lbl">Produtos classe B</div></div>
+      <div class="stat ok"><div class="num">${countC}</div><div class="lbl">Produtos classe C</div></div>
+    </div>
+    ${abc.length ? `<div class="tbl-wrap"><table>
+      <tr><th>Classe</th><th>Código</th><th>Produto</th><th>Valor em estoque</th><th>% do total</th><th>Acumulado</th></tr>
+      ${abc.map(x=>{
+        const pillClass = x.classe==='A'?'crit':(x.classe==='B'?'warn':'ok');
+        const pct = totalValorEstoque>0 ? (x.valor/totalValorEstoque)*100 : 0;
+        return `<tr>
+          <td><span class="pill ${pillClass}">${x.classe}</span></td>
+          <td><code class="code">${x.p.code}</code></td>
+          <td>${x.p.name}</td>
+          <td>${fmtMoney(x.valor)}</td>
+          <td>${pct.toFixed(1)}%</td>
+          <td>${x.pctAcumulado.toFixed(1)}%</td>
+        </tr>`;
+      }).join('')}
+    </table></div>` : '<p class="empty">Ainda sem valor de estoque suficiente para calcular a curva ABC (cadastre custo unitário nas entradas).</p>'}
+  </div>`;
+
   html += `<div class="panel">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
       <h2 style="margin:0;">Contagem de estoque — relatório semanal</h2>
       <button class="btn btn-secondary btn-sm no-print" onclick="window.print()">Imprimir / exportar</button>
     </div>
-    <p class="muted" style="font-size:12.5px;">Use esta lista para a contagem física semanal — confira o que o sistema mostra contra o que está na câmara.</p>
+    <p class="muted" style="font-size:12.5px;">Digite a contagem física de cada item para ver a diferença na hora (isso não altera o estoque no sistema — é só conferência).</p>
     <div class="tbl-wrap"><table>
-      <tr><th>Código</th><th>Produto</th><th>Local</th><th>Qtd. no sistema</th><th>Confere?</th></tr>
+      <tr><th>Código</th><th>Produto</th><th>Local</th><th>Qtd. no sistema</th><th>Contagem física</th><th>Diferença</th></tr>
       ${state.products.map(p=>`<tr>
         <td><code class="code">${p.code}</code></td>
         <td>${p.name}</td>
         <td>${p.location||'—'}</td>
-        <td>${totalStock(p)} ${p.unit}</td>
-        <td class="muted">______</td>
+        <td id="sis-${p.code}">${totalStock(p)} ${p.unit}</td>
+        <td class="no-print"><input type="number" step="0.01" style="width:90px;" placeholder="—" oninput="calcDiferenca('${p.code}', ${totalStock(p)})"></td>
+        <td class="muted" id="dif-${p.code}">—</td>
       </tr>`).join('')}
     </table></div>
   </div>`;
@@ -1326,6 +1441,7 @@ function renderRelatorios(){
     <h2>Produtos perdidos por vencimento</h2>
     ${perdasComValor.length ? `
       <div class="banner crit">Total estimado perdido: <strong>${fmtMoney(totalPerdaValor)}</strong> em ${perdasComValor.length} registro(s).</div>
+      <canvas id="chart-perdas" height="80" style="margin-bottom:14px;"></canvas>
       <div class="tbl-wrap"><table>
         <tr><th>Data</th><th>Produto</th><th>Qtd</th><th>Valor estimado</th><th>Usuário</th></tr>
         ${perdasComValor.map(m=>`<tr>
@@ -1374,6 +1490,39 @@ function renderRelatorios(){
       }
     });
   }
+
+  if(chartCategoriaInstance) chartCategoriaInstance.destroy();
+  const ctxCat = document.getElementById('chart-categoria');
+  if(ctxCat && window.Chart && categorias.length){
+    chartCategoriaInstance = new Chart(ctxCat, {
+      type:'doughnut',
+      data:{
+        labels: categorias,
+        datasets:[{ data: valorPorCategoria, backgroundColor: categorias.map(c=>CAMARA_INFO[c].color) }]
+      },
+      options:{ plugins:{ legend:{ position:'bottom', labels:{ boxWidth:12, font:{size:11} } } } }
+    });
+  }
+
+  if(chartPerdasInstance) chartPerdasInstance.destroy();
+  const ctxPerdas = document.getElementById('chart-perdas');
+  if(ctxPerdas && window.Chart && perdasComValor.length){
+    chartPerdasInstance = new Chart(ctxPerdas, {
+      type:'bar',
+      data:{ labels: meses.map(nomeMes), datasets:[{ label:'Perda estimada', data:perdaPorMes, backgroundColor:'#A63D2F', borderRadius:4 }] },
+      options:{ plugins:{ legend:{ display:false } }, scales:{ y:{ beginAtZero:true, ticks:{ callback:(v)=>fmtMoney(v) } } } }
+    });
+  }
+}
+
+function calcDiferenca(code, sistemaQtd){
+  const input = event.target;
+  const contado = parseFloat(input.value);
+  const el = document.getElementById('dif-'+code);
+  if(isNaN(contado)){ el.textContent='—'; el.className='muted'; return; }
+  const dif = contado - sistemaQtd;
+  el.textContent = (dif>0?'+':'')+dif.toFixed(2);
+  el.className = dif===0 ? 'pill ok' : 'pill crit';
 }
 
 function renderAlertas(){
