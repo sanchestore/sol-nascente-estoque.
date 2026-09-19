@@ -242,9 +242,11 @@ const storage = firebase.storage();
 const productsCol = db.collection('products');
 const movementsCol = db.collection('movements');
 const invoicesCol = db.collection('invoices');
+const checklistItemsCol = db.collection('checklistItems');
+const checklistLogCol = db.collection('checklistLog');
 
 /* ======================= ESTADO ======================= */
-let state = { products: [], movements: [], invoices: [] };
+let state = { products: [], movements: [], invoices: [], checklistItems: [], checklistLog: [] };
 let currentTab = 'painel';
 let editingProductCode = null;
 let loaded = false;
@@ -274,6 +276,7 @@ const CAMARA_INFO = {
 };
 const UNITS = ["un","kg","g","L","ml","cx","fardo","pacote","dz"];
 const SEED_PRODUCTS = [{"id": "seed1", "code": "0000001", "name": "Hambúrguer 80g", "category": "Carnes Bovinas", "unit": "kg", "location": "C5.A1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed2", "code": "0000002", "name": "Hambúrguer 56g", "category": "Carnes Bovinas", "unit": "kg", "location": "C5.A2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed3", "code": "0000003", "name": "Hambúrguer 160g", "category": "Carnes Bovinas", "unit": "kg", "location": "C5.A3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed4", "code": "0000004", "name": "Costela em Cubos", "category": "Carnes Bovinas", "unit": "kg", "location": "C5.A4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed5", "code": "0000005", "name": "Costela no Jão", "category": "Carnes Bovinas", "unit": "kg", "location": "C5.B1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed6", "code": "0000006", "name": "Costela Desfiada", "category": "Carnes Bovinas", "unit": "kg", "location": "C5.B2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed7", "code": "0000007", "name": "Carne Seca Desfiada", "category": "Carnes Bovinas", "unit": "kg", "location": "C5.B3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed8", "code": "0000008", "name": "Carne de Panela", "category": "Carnes Bovinas", "unit": "kg", "location": "C5.B4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed9", "code": "0000009", "name": "Almôndegas", "category": "Carnes Bovinas", "unit": "kg", "location": "C5.C1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed10", "code": "0000010", "name": "Acém Moído", "category": "Carnes Bovinas", "unit": "kg", "location": "C5.C2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed11", "code": "0000011", "name": "Coxão Mole Bife", "category": "Carnes Bovinas", "unit": "kg", "location": "C5.C3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed12", "code": "0000012", "name": "Coxão Duro", "category": "Carnes Bovinas", "unit": "kg", "location": "C5.C4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed13", "code": "0000013", "name": "Coxão Cortado", "category": "Carnes Bovinas", "unit": "kg", "location": "C5.D1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed14", "code": "0000014", "name": "Rabo Cortado", "category": "Carnes Bovinas", "unit": "kg", "location": "C5.D2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed15", "code": "0000015", "name": "Patinho Angus", "category": "Carnes Bovinas", "unit": "kg", "location": "C5.D3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed16", "code": "0000016", "name": "Maminha", "category": "Carnes Bovinas", "unit": "kg", "location": "C5.D4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed17", "code": "0000017", "name": "Fraldinha", "category": "Carnes Bovinas", "unit": "kg", "location": "C5.E1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed18", "code": "0000018", "name": "Lagarto", "category": "Carnes Bovinas", "unit": "kg", "location": "C5.E2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed19", "code": "0000019", "name": "Cordeiro", "category": "Carnes Bovinas", "unit": "kg", "location": "C5.E3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed20", "code": "0000020", "name": "Contra Filé", "category": "Carnes Bovinas", "unit": "kg", "location": "C5.E4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed21", "code": "0000021", "name": "Filé Mignon", "category": "Legumes e Guarnições", "unit": "kg", "location": "C4.A1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed22", "code": "0000022", "name": "Picanha", "category": "Legumes e Guarnições", "unit": "kg", "location": "C4.A2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed23", "code": "0000023", "name": "Cupim", "category": "Legumes e Guarnições", "unit": "kg", "location": "C4.A3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed24", "code": "0000024", "name": "Osso Buco", "category": "Legumes e Guarnições", "unit": "kg", "location": "C4.A4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed25", "code": "0000025", "name": "Mocotó", "category": "Legumes e Guarnições", "unit": "kg", "location": "C4.B1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed26", "code": "0000026", "name": "Mandioca", "category": "Legumes e Guarnições", "unit": "kg", "location": "C4.B2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed27", "code": "0000027", "name": "Mandioca Suprema", "category": "Legumes e Guarnições", "unit": "kg", "location": "C4.B3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed28", "code": "0000028", "name": "Couve-Flor", "category": "Legumes e Guarnições", "unit": "kg", "location": "C4.B4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed29", "code": "0000029", "name": "Vagem Fina", "category": "Legumes e Guarnições", "unit": "kg", "location": "C4.C1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed30", "code": "0000030", "name": "Brócolis", "category": "Legumes e Guarnições", "unit": "kg", "location": "C4.C2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed31", "code": "0000031", "name": "Espinafre Congelado", "category": "Legumes e Guarnições", "unit": "kg", "location": "C4.C3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed32", "code": "0000032", "name": "Polpa de Abacaxi", "category": "Legumes e Guarnições", "unit": "kg", "location": "C4.C4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed33", "code": "0000033", "name": "Polpa de Morango", "category": "Legumes e Guarnições", "unit": "kg", "location": "C4.D1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed34", "code": "0000034", "name": "Polpa de Maracujá", "category": "Legumes e Guarnições", "unit": "kg", "location": "C4.D2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed35", "code": "0000035", "name": "Polpa de Abacaxi/Hortelã", "category": "Legumes e Guarnições", "unit": "kg", "location": "C4.D3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed36", "code": "0000036", "name": "Morango Congelado", "category": "Legumes e Guarnições", "unit": "kg", "location": "C4.D4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed37", "code": "0000037", "name": "Pêssego", "category": "Legumes e Guarnições", "unit": "kg", "location": "C4.E1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed38", "code": "0000038", "name": "Manga", "category": "Legumes e Guarnições", "unit": "kg", "location": "C4.E2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed39", "code": "0000039", "name": "Mix de Frutas", "category": "Legumes e Guarnições", "unit": "kg", "location": "C4.E3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed40", "code": "0000040", "name": "Açaí", "category": "Legumes e Guarnições", "unit": "kg", "location": "C4.E4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed41", "code": "0000041", "name": "Panceta Quadrada", "category": "Suínos", "unit": "kg", "location": "C3.A1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed42", "code": "0000042", "name": "Rabo Picado", "category": "Suínos", "unit": "kg", "location": "C3.A2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed43", "code": "0000043", "name": "Orelha", "category": "Suínos", "unit": "kg", "location": "C3.A3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed44", "code": "0000044", "name": "Joelho Cerignado", "category": "Suínos", "unit": "kg", "location": "C3.A4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed45", "code": "0000045", "name": "Costelinha de Porco", "category": "Suínos", "unit": "kg", "location": "C3.B1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed46", "code": "0000046", "name": "Linguiças Especiais", "category": "Suínos", "unit": "kg", "location": "C3.B2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed47", "code": "0000047", "name": "Linguiça Paio", "category": "Suínos", "unit": "kg", "location": "C3.B3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed48", "code": "0000048", "name": "Linguiça Portuguesa", "category": "Suínos", "unit": "kg", "location": "C3.B4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed49", "code": "0000049", "name": "Linguiça de Pernil", "category": "Suínos", "unit": "kg", "location": "C3.C1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed50", "code": "0000050", "name": "Bisteca de Porco", "category": "Suínos", "unit": "kg", "location": "C3.C2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed51", "code": "0000051", "name": "Calabresa Fatiada", "category": "Suínos", "unit": "kg", "location": "C3.C3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed52", "code": "0000052", "name": "Bacon Fatiado", "category": "Suínos", "unit": "kg", "location": "C3.C4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed53", "code": "0000053", "name": "Bacon Manta", "category": "Suínos", "unit": "kg", "location": "C3.D1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed54", "code": "0000054", "name": "Bacon Cubos Brasá", "category": "Suínos", "unit": "kg", "location": "C3.D2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed55", "code": "0000055", "name": "Copa Lombo", "category": "Suínos", "unit": "kg", "location": "C3.D3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed56", "code": "0000056", "name": "Torresmo", "category": "Suínos", "unit": "kg", "location": "C3.D4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed57", "code": "0000057", "name": "Pernil/Tender", "category": "Suínos", "unit": "kg", "location": "C3.E1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed58", "code": "0000058", "name": "Picanha Suína", "category": "Suínos", "unit": "kg", "location": "C3.E2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed59", "code": "0000059", "name": "Filé Mignon Suíno", "category": "Suínos", "unit": "kg", "location": "C3.E3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed60", "code": "0000060", "name": "Sobrepaleta", "category": "Suínos", "unit": "kg", "location": "C3.E4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed61", "code": "0000061", "name": "Bacalhau", "category": "Peixes/Pescados", "unit": "kg", "location": "C6.A1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed62", "code": "0000062", "name": "Merluza", "category": "Peixes/Pescados", "unit": "kg", "location": "C6.A2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed63", "code": "0000063", "name": "Salmão", "category": "Peixes/Pescados", "unit": "kg", "location": "C6.A3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed64", "code": "0000064", "name": "Tilápia", "category": "Peixes/Pescados", "unit": "kg", "location": "C6.A4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed65", "code": "0000065", "name": "Camarão", "category": "Peixes/Pescados", "unit": "kg", "location": "C6.B1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed66", "code": "0000066", "name": "Mexilhões", "category": "Peixes/Pescados", "unit": "kg", "location": "C6.B2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed67", "code": "0000067", "name": "Pangásius", "category": "Peixes/Pescados", "unit": "kg", "location": "C6.B3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed68", "code": "0000068", "name": "Tentáculos de Lula", "category": "Peixes/Pescados", "unit": "kg", "location": "C6.B4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed69", "code": "0000069", "name": "Anéis de Lula", "category": "Peixes/Pescados", "unit": "kg", "location": "C6.C1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed70", "code": "0000070", "name": "Lombo de Cação", "category": "Peixes/Pescados", "unit": "kg", "location": "C6.C2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed71", "code": "0000071", "name": "Posta de Cação", "category": "Peixes/Pescados", "unit": "kg", "location": "C6.C3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed72", "code": "0000072", "name": "Filé de Salmão", "category": "Peixes/Pescados", "unit": "kg", "location": "C6.C4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed73", "code": "0000073", "name": "Bacalhau / Merluza", "category": "Peixes/Pescados", "unit": "kg", "location": "C6.D1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed74", "code": "0000074", "name": "Kani Kama", "category": "Peixes/Pescados", "unit": "kg", "location": "C6.D2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed75", "code": "0000075", "name": "Filé de Salmão", "category": "Peixes/Pescados", "unit": "kg", "location": "C6.D3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed76", "code": "0000076", "name": "Salmão Pedaços", "category": "Peixes/Pescados", "unit": "kg", "location": "C6.D4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed77", "code": "0000077", "name": "Polvo", "category": "Peixes/Pescados", "unit": "kg", "location": "C6.E1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed78", "code": "0000078", "name": "Lula", "category": "Peixes/Pescados", "unit": "kg", "location": "C6.E2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed79", "code": "0000079", "name": "Atum", "category": "Peixes/Pescados", "unit": "kg", "location": "C6.E3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed80", "code": "0000080", "name": "Peixes Diversos", "category": "Peixes/Pescados", "unit": "kg", "location": "C6.E4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed81", "code": "0000081", "name": "Kibe", "category": "Salgados/Congelados", "unit": "un", "location": "C2.A1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed82", "code": "0000082", "name": "Kibe Caseiro", "category": "Salgados/Congelados", "unit": "un", "location": "C2.A2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed83", "code": "0000083", "name": "Coxinha", "category": "Salgados/Congelados", "unit": "un", "location": "C2.A3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed84", "code": "0000084", "name": "Risole", "category": "Salgados/Congelados", "unit": "un", "location": "C2.A4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed85", "code": "0000085", "name": "Crespinho de Milho", "category": "Salgados/Congelados", "unit": "un", "location": "C2.B1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed86", "code": "0000086", "name": "Bolinho de Brócolis", "category": "Salgados/Congelados", "unit": "un", "location": "C2.B2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed87", "code": "0000087", "name": "Bolinho de Queijo", "category": "Salgados/Congelados", "unit": "un", "location": "C2.B3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed88", "code": "0000088", "name": "Risole de Palmito", "category": "Salgados/Congelados", "unit": "un", "location": "C2.B4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed89", "code": "0000089", "name": "Pão de Queijo", "category": "Salgados/Congelados", "unit": "un", "location": "C2.C1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed90", "code": "0000090", "name": "Frango", "category": "Salgados/Congelados", "unit": "un", "location": "C2.C2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed91", "code": "0000091", "name": "Medalhão de Mandioca", "category": "Salgados/Congelados", "unit": "un", "location": "C2.C3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed92", "code": "0000092", "name": "Batata Canchinhas", "category": "Salgados/Congelados", "unit": "un", "location": "C2.C4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed93", "code": "0000093", "name": "Batata Noisettes", "category": "Salgados/Congelados", "unit": "un", "location": "C2.D1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed94", "code": "0000094", "name": "Batata Palito", "category": "Salgados/Congelados", "unit": "un", "location": "C2.D2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed95", "code": "0000095", "name": "Anel de Cebola", "category": "Salgados/Congelados", "unit": "un", "location": "C2.D3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed96", "code": "0000096", "name": "Batata Rústica", "category": "Salgados/Congelados", "unit": "un", "location": "C2.D4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed97", "code": "0000097", "name": "Polenta", "category": "Salgados/Congelados", "unit": "un", "location": "C2.E1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed98", "code": "0000098", "name": "Esfirra", "category": "Salgados/Congelados", "unit": "un", "location": "C2.E2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed99", "code": "0000099", "name": "Croquete", "category": "Salgados/Congelados", "unit": "un", "location": "C2.E3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed100", "code": "0000100", "name": "Pastel", "category": "Salgados/Congelados", "unit": "un", "location": "C2.E4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed101", "code": "0000101", "name": "Polpa de Açaí", "category": "Polpas", "unit": "kg", "location": "C1.A1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed102", "code": "0000102", "name": "Polpa de Abacaxi", "category": "Polpas", "unit": "kg", "location": "C1.A2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed103", "code": "0000103", "name": "Polpa de Morango", "category": "Polpas", "unit": "kg", "location": "C1.A3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed104", "code": "0000104", "name": "Polpa de Maracujá", "category": "Polpas", "unit": "kg", "location": "C1.A4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed105", "code": "0000105", "name": "Polpa de Manga", "category": "Polpas", "unit": "kg", "location": "C1.B1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed106", "code": "0000106", "name": "Polpa de Cajá", "category": "Polpas", "unit": "kg", "location": "C1.B2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed107", "code": "0000107", "name": "Polpa de Uva", "category": "Polpas", "unit": "kg", "location": "C1.B3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed108", "code": "0000108", "name": "Outras Polpas", "category": "Polpas", "unit": "kg", "location": "C1.B4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed109", "code": "0000109", "name": "Polpa de Frutas Vermelhas", "category": "Polpas", "unit": "kg", "location": "C1.C1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed110", "code": "0000110", "name": "Polpa de Kiwi", "category": "Polpas", "unit": "kg", "location": "C1.C2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed111", "code": "0000111", "name": "Polpa de Pêssego", "category": "Polpas", "unit": "kg", "location": "C1.C3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed112", "code": "0000112", "name": "Polpa de Goiaba", "category": "Polpas", "unit": "kg", "location": "C1.C4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed113", "code": "0000113", "name": "Polpa de Morango c/Leite", "category": "Polpas", "unit": "kg", "location": "C1.D1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed114", "code": "0000114", "name": "Polpa de Acerola", "category": "Polpas", "unit": "kg", "location": "C1.D2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed115", "code": "0000115", "name": "Polpa de Tangerina", "category": "Polpas", "unit": "kg", "location": "C1.D3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed116", "code": "0000116", "name": "Polpa de Limão", "category": "Polpas", "unit": "kg", "location": "C1.D4", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed117", "code": "0000117", "name": "Polpa de Coco", "category": "Polpas", "unit": "kg", "location": "C1.E1", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed118", "code": "0000118", "name": "Polpa de Banana", "category": "Polpas", "unit": "kg", "location": "C1.E2", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed119", "code": "0000119", "name": "Polpa de Abacaxi c/Hortelã", "category": "Polpas", "unit": "kg", "location": "C1.E3", "min": 0, "max": 0, "lastCost": 0, "batches": []}, {"id": "seed120", "code": "0000120", "name": "Polpa Especial", "category": "Polpas", "unit": "kg", "location": "C1.E4", "min": 0, "max": 0, "lastCost": 0, "batches": []}];
+const SEED_CHECKLIST = [{"texto": "Separar produtos vencidos ou danificados para descarte", "categoria": "5S - Utilização (Seiri)", "ativo": true, "id": "chk1"}, {"texto": "Remover da câmara embalagens e utensílios sem uso", "categoria": "5S - Utilização (Seiri)", "ativo": true, "id": "chk2"}, {"texto": "Verificar se só há na câmara o que realmente é necessário", "categoria": "5S - Utilização (Seiri)", "ativo": true, "id": "chk3"}, {"texto": "Conferir se cada produto está na posição correta do mapa", "categoria": "5S - Organização (Seiton)", "ativo": true, "id": "chk4"}, {"texto": "Checar se as placas de identificação das prateleiras estão legíveis", "categoria": "5S - Organização (Seiton)", "ativo": true, "id": "chk5"}, {"texto": "Guardar utensílios de limpeza sempre no mesmo lugar", "categoria": "5S - Organização (Seiton)", "ativo": true, "id": "chk6"}, {"texto": "Limpar bancadas e superfícies de preparo", "categoria": "5S - Limpeza (Seiso)", "ativo": true, "id": "chk7"}, {"texto": "Limpar piso da câmara fria e da cozinha", "categoria": "5S - Limpeza (Seiso)", "ativo": true, "id": "chk8"}, {"texto": "Verificar e limpar borrachas de vedação das câmaras", "categoria": "5S - Limpeza (Seiso)", "ativo": true, "id": "chk9"}, {"texto": "Conferir se todos os produtos estão bem fechados e identificados", "categoria": "5S - Padronização (Seiketsu)", "ativo": true, "id": "chk10"}, {"texto": "Verificar se etiquetas de validade seguem o padrão da casa", "categoria": "5S - Padronização (Seiketsu)", "ativo": true, "id": "chk11"}, {"texto": "Registrar corretamente entradas e saídas do dia no sistema", "categoria": "5S - Disciplina (Shitsuke)", "ativo": true, "id": "chk12"}, {"texto": "Conferir se a equipe seguiu os padrões de organização combinados", "categoria": "5S - Disciplina (Shitsuke)", "ativo": true, "id": "chk13"}, {"texto": "Conferir temperatura das câmaras frias", "categoria": "Tarefas diárias", "ativo": true, "id": "chk14"}, {"texto": "Abertura da loja — checagem geral", "categoria": "Tarefas diárias", "ativo": true, "id": "chk15"}, {"texto": "Fechamento da loja — checagem geral", "categoria": "Tarefas diárias", "ativo": true, "id": "chk16"}, {"texto": "Retirar lixo e resíduos do dia", "categoria": "Tarefas diárias", "ativo": true, "id": "chk17"}, {"texto": "Conferir produtos próximos do vencimento do dia", "categoria": "Tarefas diárias", "ativo": true, "id": "chk18"}];
 
 function uid(){ return Math.random().toString(36).slice(2,10) + Date.now().toString(36); }
 function currentUserLabel(){
@@ -336,6 +339,7 @@ auth.onAuthStateChanged(user=>{
 async function iniciarSincronizacao(){
   document.getElementById('content').innerHTML = '<div class="panel"><p class="empty">Sincronizando dados…</p></div>';
   await garantirSeed();
+  await garantirSeedChecklist();
 
   unsubProducts = productsCol.onSnapshot(snap=>{
     state.products = snap.docs.map(d=>({ code:d.id, ...d.data() }));
@@ -352,6 +356,30 @@ async function iniciarSincronizacao(){
     state.invoices = snap.docs.map(d=>({ id:d.id, ...d.data() }));
     render();
   }, err=> showToast('Erro ao sincronizar notas: '+err.message));
+
+  checklistItemsCol.onSnapshot(snap=>{
+    state.checklistItems = snap.docs.map(d=>({ id:d.id, ...d.data() }));
+    render();
+  }, err=> showToast('Erro ao sincronizar checklist: '+err.message));
+
+  checklistLogCol.orderBy('data','desc').limit(600).onSnapshot(snap=>{
+    state.checklistLog = snap.docs.map(d=>({ id:d.id, ...d.data() }));
+    render();
+  }, err=> showToast('Erro ao sincronizar histórico do checklist: '+err.message));
+}
+
+async function garantirSeedChecklist(){
+  try{
+    const snap = await checklistItemsCol.limit(1).get();
+    if(snap.empty){
+      const batch = db.batch();
+      SEED_CHECKLIST.forEach(it=>{
+        const ref = checklistItemsCol.doc(it.id);
+        batch.set(ref, { texto:it.texto, categoria:it.categoria, ativo:true });
+      });
+      await batch.commit();
+    }
+  }catch(e){ showToast('Erro ao carregar checklist inicial: '+e.message); }
 }
 
 async function garantirSeed(){
@@ -543,6 +571,7 @@ const TABS = [
   {id:'saida', label:'Saída'},
   {id:'compras', label:'Compras / NF'},
   {id:'relatorios', label:'Relatórios'},
+  {id:'checklist', label:'Checklist'},
   {id:'alertas', label:'Alertas'},
   {id:'backup', label:'Backup'},
 ];
@@ -582,6 +611,63 @@ function invoiceAlertCount(){
   }).length;
 }
 
+/* ======================= CHECKLIST (tarefas + 5S) ======================= */
+const CHECKLIST_CATEGORIAS = [
+  "Tarefas diárias",
+  "5S - Utilização (Seiri)",
+  "5S - Organização (Seiton)",
+  "5S - Limpeza (Seiso)",
+  "5S - Padronização (Seiketsu)",
+  "5S - Disciplina (Shitsuke)"
+];
+function itemsChecklistAtivos(){ return state.checklistItems.filter(i=>i.ativo!==false); }
+function logChecklist(itemId, data){ return state.checklistLog.find(l=>l.itemId===itemId && l.data===data); }
+function pendentesHojeChecklist(){
+  const hoje = todayISO();
+  return itemsChecklistAtivos().filter(it=> !logChecklist(it.id, hoje));
+}
+async function marcarTarefaChecklist(itemId, jaFeita){
+  const data = todayISO();
+  const docId = itemId+'_'+data;
+  if(jaFeita){
+    await checklistLogCol.doc(docId).delete();
+  } else {
+    const it = state.checklistItems.find(i=>i.id===itemId);
+    await checklistLogCol.doc(docId).set({
+      itemId, data, texto: it?it.texto:'', categoria: it?it.categoria:'',
+      concluido:true, user: currentUserLabel(), ts: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  }
+}
+async function adicionarTarefaChecklist(){
+  const texto = document.getElementById('chk-novo-texto').value.trim();
+  const categoria = document.getElementById('chk-novo-cat').value;
+  if(!texto){ showToast('Descreva a tarefa.'); return; }
+  const id = 'chk'+uid();
+  await checklistItemsCol.doc(id).set({ texto, categoria, ativo:true });
+  document.getElementById('chk-novo-texto').value='';
+  showToast('Tarefa adicionada.');
+}
+async function excluirTarefaChecklist(id){
+  if(!confirm('Remover esta tarefa do checklist? O histórico já registrado é mantido.')) return;
+  await checklistItemsCol.doc(id).update({ ativo:false });
+}
+function pendenciasDiasAnteriores(dias){
+  const hoje = todayISO();
+  const itens = itemsChecklistAtivos();
+  const resultado = [];
+  for(let i=1;i<=dias;i++){
+    const d = new Date(); d.setDate(d.getDate()-i);
+    const dataISO = d.toISOString().slice(0,10);
+    itens.forEach(it=>{
+      if(!logChecklist(it.id, dataISO)){
+        resultado.push({ data:dataISO, texto:it.texto, categoria:it.categoria });
+      }
+    });
+  }
+  return resultado.sort((a,b)=> a.data<b.data?1:-1);
+}
+
 function renderTabs(){
   const nav = document.getElementById('tabs');
   nav.innerHTML = '';
@@ -599,6 +685,14 @@ function renderTabs(){
     }
     if(t.id==='compras'){
       const c = invoiceAlertCount();
+      if(c>0){
+        const b = document.createElement('span');
+        b.className='badge'; b.textContent=c;
+        btn.appendChild(b);
+      }
+    }
+    if(t.id==='checklist'){
+      const c = pendentesHojeChecklist().length;
       if(c>0){
         const b = document.createElement('span');
         b.className='badge'; b.textContent=c;
@@ -1525,6 +1619,64 @@ function calcDiferenca(code, sistemaQtd){
   el.className = dif===0 ? 'pill ok' : 'pill crit';
 }
 
+/* ======================= RENDER: CHECKLIST ======================= */
+function renderChecklist(){
+  const hoje = todayISO();
+  const itens = itemsChecklistAtivos();
+  const pendentes = pendentesHojeChecklist();
+  const concluidosHoje = itens.length - pendentes.length;
+  const pendenciasAntigas = pendenciasDiasAnteriores(7);
+
+  let html = `<div class="grid-cards">
+    <div class="stat ok"><div class="num">${concluidosHoje}/${itens.length}</div><div class="lbl">Concluídas hoje</div></div>
+    <div class="stat warn"><div class="num">${pendentes.length}</div><div class="lbl">Ainda faltam hoje</div></div>
+    <div class="stat crit"><div class="num">${pendenciasAntigas.length}</div><div class="lbl">Deixadas de fazer (7 dias)</div></div>
+  </div>`;
+
+  html += `<div class="panel"><h2>Checklist de hoje</h2>`;
+  CHECKLIST_CATEGORIAS.forEach(cat=>{
+    const doCat = itens.filter(it=>it.categoria===cat);
+    if(!doCat.length) return;
+    html += `<h3 style="font-size:14px;color:var(--gold-dark);margin:14px 0 6px;">${cat}</h3>`;
+    html += doCat.map(it=>{
+      const log = logChecklist(it.id, hoje);
+      const feita = !!log;
+      return `<div style="display:flex;align-items:flex-start;gap:10px;padding:8px 4px;border-bottom:1px solid var(--line);">
+        <input type="checkbox" ${feita?'checked':''} style="margin-top:3px;width:18px;height:18px;flex:none;" onchange="marcarTarefaChecklist('${it.id}', ${feita}).then(()=>renderChecklist())">
+        <div style="flex:1;">
+          <div style="${feita?'text-decoration:line-through;color:var(--ink-soft);':''}font-size:14px;">${it.texto}</div>
+          ${feita? `<div class="muted" style="font-size:11px;">feito por ${log.user||'—'}</div>` : ''}
+        </div>
+        <button class="btn-danger btn-sm" onclick="excluirTarefaChecklist('${it.id}')" title="Remover tarefa">✕</button>
+      </div>`;
+    }).join('');
+  });
+  html += `</div>`;
+
+  html += `<div class="panel">
+    <h2>Adicionar nova tarefa</h2>
+    <div class="row2">
+      <div class="field"><label>Descrição da tarefa</label><input id="chk-novo-texto" placeholder="Ex: Conferir validade das polpas"></div>
+      <div class="field"><label>Categoria</label><select id="chk-novo-cat">${CHECKLIST_CATEGORIAS.map(c=>`<option value="${c}">${c}</option>`).join('')}</select></div>
+    </div>
+    <button class="btn btn-primary" onclick="adicionarTarefaChecklist()">Adicionar tarefa</button>
+  </div>`;
+
+  html += `<div class="panel">
+    <h2>Tarefas deixadas de fazer — últimos 7 dias</h2>
+    ${pendenciasAntigas.length ? `<div class="tbl-wrap"><table>
+      <tr><th>Data</th><th>Categoria</th><th>Tarefa</th></tr>
+      ${pendenciasAntigas.map(p=>`<tr>
+        <td>${fmtDate(p.data)}</td>
+        <td>${p.categoria}</td>
+        <td>${p.texto}</td>
+      </tr>`).join('')}
+    </table></div>` : '<p class="empty">Nenhuma tarefa ficou pendente nos últimos 7 dias.</p>'}
+  </div>`;
+
+  document.getElementById('content').innerHTML = html;
+}
+
 function renderAlertas(){
   const low = state.products.filter(p=>stockStatus(p)!=='ok');
   const exp = state.products
@@ -1641,6 +1793,7 @@ function render(){
   else if(currentTab==='saida') renderSaida();
   else if(currentTab==='compras') renderCompras();
   else if(currentTab==='relatorios') renderRelatorios();
+  else if(currentTab==='checklist') renderChecklist();
   else if(currentTab==='alertas') renderAlertas();
   else if(currentTab==='backup') renderBackup();
 }
