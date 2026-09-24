@@ -244,9 +244,10 @@ const movementsCol = db.collection('movements');
 const invoicesCol = db.collection('invoices');
 const checklistItemsCol = db.collection('checklistItems');
 const checklistLogCol = db.collection('checklistLog');
+const categoriasExtrasCol = db.collection('categoriasExtras');
 
 /* ======================= ESTADO ======================= */
-let state = { products: [], movements: [], invoices: [], checklistItems: [], checklistLog: [] };
+let state = { products: [], movements: [], invoices: [], checklistItems: [], checklistLog: [], categoriasExtras: [] };
 let currentTab = 'painel';
 let editingProductCode = null;
 let loaded = false;
@@ -366,6 +367,30 @@ async function iniciarSincronizacao(){
     state.checklistLog = snap.docs.map(d=>({ id:d.id, ...d.data() }));
     render();
   }, err=> showToast('Erro ao sincronizar histórico do checklist: '+err.message));
+
+  categoriasExtrasCol.onSnapshot(snap=>{
+    state.categoriasExtras = snap.docs.map(d=>d.id);
+    render();
+  }, err=> showToast('Erro ao sincronizar categorias: '+err.message));
+}
+
+function categoriasDisponiveis(){
+  const extras = state.categoriasExtras.filter(c=> !CATEGORIES.some(cc=>cc[0]===c));
+  return [...CATEGORIES.map(c=>c[0]), ...extras];
+}
+
+async function adicionarCategoria(){
+  const nome = prompt('Nome da nova categoria:');
+  if(!nome || !nome.trim()) return;
+  const limpo = nome.trim();
+  if(categoriasDisponiveis().some(c=>c.toLowerCase()===limpo.toLowerCase())){
+    showToast('Essa categoria já existe.');
+    document.getElementById('f-cat').value = categoriasDisponiveis().find(c=>c.toLowerCase()===limpo.toLowerCase());
+    return;
+  }
+  await categoriasExtrasCol.doc(limpo).set({ criadoEm: todayISO(), criadoPor: currentUserLabel() });
+  showToast('Categoria adicionada.');
+  setTimeout(()=>{ const sel=document.getElementById('f-cat'); if(sel) sel.value = limpo; }, 300);
 }
 
 async function garantirSeedChecklist(){
@@ -508,7 +533,7 @@ function selecionarPicker(prefix, code){
 }
 
 /* ======================= MOVIMENTAÇÕES (Firestore) ======================= */
-async function registrarEntrada({productCode, qty, lote, validade, invoiceNumber, unitCost, fornecedor, dataVencimento, statusNota, dataMovimento}){
+async function registrarEntrada({productCode, qty, lote, validade, invoiceNumber, unitCost, fornecedor, dataVencimento, statusNota, dataMovimento, obs}){
   const ref = productsCol.doc(productCode);
   const snap = await ref.get();
   if(!snap.exists){ showToast('Produto não encontrado.'); return; }
@@ -520,7 +545,7 @@ async function registrarEntrada({productCode, qty, lote, validade, invoiceNumber
   await ref.update(updates);
   await movementsCol.add({
     productCode, productName:p.name, type:'entrada', qty, date: dataFinal,
-    detail: lote ? `Lote ${lote}` : '', user: currentUserLabel(),
+    detail: lote ? `Lote ${lote}` : '', obs: obs||'', user: currentUserLabel(),
     ts: firebase.firestore.FieldValue.serverTimestamp()
   });
   if(invoiceNumber){
@@ -534,7 +559,7 @@ async function registrarEntrada({productCode, qty, lote, validade, invoiceNumber
   }
 }
 
-async function registrarSaida({productCode, qty, motivo}){
+async function registrarSaida({productCode, qty, motivo, obs}){
   const ref = productsCol.doc(productCode);
   const snap = await ref.get();
   if(!snap.exists) return false;
@@ -557,7 +582,7 @@ async function registrarSaida({productCode, qty, motivo}){
   const newBatches = batches.filter(b=>b.qty>0);
   await ref.update({ batches: newBatches });
   await movementsCol.add({
-    productCode, productName:p.name, type:'saida', qty, date: todayISO(), detail: motivo||'',
+    productCode, productName:p.name, type:'saida', qty, date: todayISO(), detail: motivo||'', obs: obs||'',
     user: currentUserLabel(), ts: firebase.firestore.FieldValue.serverTimestamp()
   });
   return true;
@@ -742,6 +767,11 @@ function renderPainel(){
     ${renderCamaraBreakdown()}
   </div>`;
 
+  html += `<div class="panel">
+    <h2>Separação por estoque</h2>
+    ${renderCategoriaBreakdownGeral()}
+  </div>`;
+
   if(crit+low+nearExp+expired > 0){
     html += `<div class="panel">
       <h2>Precisa de atenção</h2>
@@ -755,6 +785,25 @@ function renderPainel(){
   </div>`;
 
   document.getElementById('content').innerHTML = html;
+}
+
+function renderCategoriaBreakdownGeral(){
+  const cats = [...new Set(state.products.map(p=>p.category))];
+  const paletaGenerica = ["#7A6650","#9C6A1F","#4C7A4A","#2E5F7A","#A63D2F","#6B4A8A","#3F6B45","#B08B2E"];
+  const cards = cats.map((cat,i)=>{
+    const info = CAMARA_INFO[cat];
+    const color = info ? info.color : paletaGenerica[i % paletaGenerica.length];
+    const items = state.products.filter(p=>p.category===cat);
+    const value = items.reduce((s,p)=>s+totalStock(p)*(p.lastCost||0),0);
+    const critCount = items.filter(p=>stockStatus(p)==='crit').length;
+    const warnCount = items.filter(p=>stockStatus(p)==='warn').length;
+    return `<div class="stat" style="border-top:4px solid ${color};">
+      <div style="font-weight:bold;font-size:14px;margin-bottom:8px;">${cat}${info?` <span class="muted" style="font-weight:normal;font-size:11px;">(${info.camara})</span>`:''}</div>
+      <div style="font-size:12.5px;" class="muted">${items.length} itens · ${fmtMoney(value)}</div>
+      ${(critCount+warnCount)>0 ? `<div style="margin-top:6px;">${critCount? `<span class="pill crit">${critCount} crítico</span> `:''}${warnCount? `<span class="pill warn">${warnCount} baixo</span>`:''}</div>` : `<div style="margin-top:6px;"><span class="pill ok">OK</span></div>`}
+    </div>`;
+  }).join('');
+  return cards ? `<div class="grid-cards">${cards}</div>` : '<p class="empty">Nenhum produto cadastrado ainda.</p>';
 }
 
 function renderCamaraBreakdown(){
@@ -824,7 +873,7 @@ function renderMovementsTable(limit){
         <td><span class="pill ${m.type==='entrada'?'ok':'crit'}">${m.type==='entrada'?'Entrada':'Saída'}</span></td>
         <td>${m.type==='entrada'?'+':'-'}${m.qty}</td>
         <td class="muted">${m.user||'—'}</td>
-        <td class="muted">${m.detail||''}</td>
+        <td class="muted">${m.detail||''}${m.obs? (m.detail? ' — ':'')+m.obs : ''}</td>
       </tr>`;
     }).join('')}
   </table></div>`;
@@ -837,7 +886,10 @@ function renderProdutos(){
     <div class="row2">
       <div class="field"><label>Nome do produto</label><input id="f-name" placeholder="Ex: Coxinha de frango congelada"></div>
       <div class="field"><label>Categoria</label>
-        <select id="f-cat">${CATEGORIES.map(c=>`<option value="${c[0]}">${c[0]}</option>`).join('')}</select>
+        <div style="display:flex;gap:6px;">
+          <select id="f-cat" style="flex:1;">${categoriasDisponiveis().map(c=>`<option value="${c}">${c}</option>`).join('')}</select>
+          <button type="button" class="btn btn-secondary btn-sm" style="flex:none;" onclick="adicionarCategoria()">+ Nova categoria</button>
+        </div>
       </div>
     </div>
     <div class="row3">
@@ -848,8 +900,9 @@ function renderProdutos(){
     <div class="row3">
       <div class="field"><label>Estoque mínimo</label><input id="f-min" type="number" min="0" step="0.01" value="0"></div>
       <div class="field"><label>Estoque máximo/ideal</label><input id="f-max" type="number" min="0" step="0.01" value="0"></div>
-      <div class="field"><label>Estoque inicial</label><input id="f-init" type="number" min="0" step="0.01" value="0" ${editingProductCode?'disabled':''}></div>
+      <div class="field"><label>${editingProductCode? 'Quantidade atual (ajustar se necessário)' : 'Estoque inicial'}</label><input id="f-init" type="number" min="0" step="0.01" value="0"></div>
     </div>
+    ${editingProductCode? '<p class="muted" style="font-size:11.5px;margin-top:-6px;">Mudar esse número gera automaticamente um ajuste de entrada ou saída no histórico, com a observação "Ajuste manual de quantidade".</p>' : ''}
     <button class="btn btn-primary" onclick="salvarProduto()">${editingProductCode? 'Salvar alterações':'Cadastrar produto'}</button>
     ${editingProductCode? '<button class="btn btn-ghost" onclick="cancelarEdicao()">Cancelar edição</button>' : ''}
   </div>
@@ -860,7 +913,7 @@ function renderProdutos(){
       <div class="field search-wrap" style="margin-bottom:0;"><span class="search-icon">🔍</span><input id="f-search" placeholder="Buscar por nome ou código..." oninput="filtrarProdutos()"></div>
       <div class="field" style="margin-bottom:0;"><select id="f-filtro-cat" onchange="filtrarProdutos()">
         <option value="">Todas as câmaras/categorias</option>
-        ${CATEGORIES.map(c=>`<option value="${c[0]}">${c[0]}</option>`).join('')}
+        ${categoriasDisponiveis().map(c=>`<option value="${c}">${c}</option>`).join('')}
       </select></div>
     </div>
     <div id="produtos-tabela">${renderProdutosTable()}</div>
@@ -919,6 +972,38 @@ function renderProdutosTable(q, cat){
   </table></div>`;
 }
 
+async function ajustarQuantidadeProduto(code, novaQtd){
+  const ref = productsCol.doc(code);
+  const snap = await ref.get();
+  if(!snap.exists) return;
+  const p = snap.data();
+  const atual = (p.batches||[]).reduce((s,b)=>s+b.qty,0);
+  const diff = Math.round((novaQtd - atual)*100)/100;
+  if(diff===0) return;
+  if(diff>0){
+    const batches = (p.batches||[]).concat([{ id: uid(), qty: diff, lote:null, validade:null }]);
+    await ref.update({ batches });
+    await movementsCol.add({ productCode:code, productName:p.name, type:'entrada', qty:diff, date: todayISO(), detail:'Ajuste manual de quantidade', user: currentUserLabel(), ts: firebase.firestore.FieldValue.serverTimestamp() });
+  } else {
+    let restante = Math.abs(diff);
+    const batches = (p.batches||[]).slice().sort((a,b)=>{
+      if(!a.validade && !b.validade) return 0;
+      if(!a.validade) return 1;
+      if(!b.validade) return -1;
+      return a.validade < b.validade ? -1 : 1;
+    });
+    for(const b of batches){
+      if(restante<=0) break;
+      const take = Math.min(b.qty, restante);
+      b.qty -= take;
+      restante -= take;
+    }
+    const novosBatches = batches.filter(b=>b.qty>0);
+    await ref.update({ batches: novosBatches });
+    await movementsCol.add({ productCode:code, productName:p.name, type:'saida', qty:Math.abs(diff), date: todayISO(), detail:'Ajuste manual de quantidade', user: currentUserLabel(), ts: firebase.firestore.FieldValue.serverTimestamp() });
+  }
+}
+
 async function salvarProduto(){
   const name = document.getElementById('f-name').value.trim();
   const category = document.getElementById('f-cat').value;
@@ -933,6 +1018,7 @@ async function salvarProduto(){
 
   if(editingProductCode){
     await productsCol.doc(editingProductCode).update({ name, category, unit, location, min, max });
+    await ajustarQuantidadeProduto(editingProductCode, init);
     editingProductCode = null;
     showToast('Produto atualizado.');
   } else {
@@ -948,8 +1034,7 @@ async function salvarProduto(){
   renderProdutos();
 }
 
-function editarProduto(code){ editingProductCode=code; renderProdutos(); window.scrollTo({top:0,behavior:'smooth'}); }
-function cancelarEdicao(){ editingProductCode=null; renderProdutos(); }
+function editarProduto(code){ editingProductCode=code; renderProdutos(); window.scrollTo({top:0,behavior:'smooth'}); }function cancelarEdicao(){ editingProductCode=null; renderProdutos(); }
 async function excluirProduto(code){
   const p = productByCode(code);
   if(!p) return;
@@ -988,6 +1073,7 @@ function renderEntrada(){
         <select id="e-status-nota"><option value="a_pagar">A pagar</option><option value="paga">Já paga</option></select>
       </div>
     </div>
+    <div class="field"><label>Observação (opcional)</label><textarea id="e-obs" rows="2" placeholder="Anotação livre sobre esta entrada..."></textarea></div>
     <button class="btn btn-primary" id="e-btn" onclick="confirmarEntrada()">Registrar entrada</button>
   </div>
   <div class="panel">
@@ -1009,10 +1095,11 @@ async function confirmarEntrada(){
   const fornecedor = document.getElementById('e-forn').value.trim();
   const dataVencimento = document.getElementById('e-venc').value;
   const statusNota = document.getElementById('e-status-nota').value;
+  const obs = document.getElementById('e-obs').value.trim();
 
   if(!qty || qty<=0){ showToast('Informe uma quantidade válida.'); return; }
   const btn = document.getElementById('e-btn'); btn.disabled = true;
-  await registrarEntrada({productCode, qty, lote, validade, invoiceNumber, unitCost, fornecedor, dataVencimento, statusNota});
+  await registrarEntrada({productCode, qty, lote, validade, invoiceNumber, unitCost, fornecedor, dataVencimento, statusNota, obs});
   showToast('Entrada registrada.');
   renderEntrada();
 }
@@ -1039,6 +1126,7 @@ function renderSaida(){
       </select>
     </div>
     <p class="muted" style="font-size:12.5px;">A retirada usa primeiro os lotes com validade mais próxima (FEFO), quando houver.</p>
+    <div class="field"><label>Observação (opcional)</label><textarea id="s-obs" rows="2" placeholder="Anotação livre sobre esta saída..."></textarea></div>
     <button class="btn btn-primary" id="s-btn" onclick="confirmarSaida()">Registrar saída</button>
   </div>
   <div class="panel">
@@ -1053,9 +1141,10 @@ async function confirmarSaida(){
   if(!productCode){ showToast('Busque e selecione um produto.'); return; }
   const qty = parseFloat(document.getElementById('s-qty').value);
   const motivo = document.getElementById('s-motivo').value;
+  const obs = document.getElementById('s-obs').value.trim();
   if(!qty || qty<=0){ showToast('Informe uma quantidade válida.'); return; }
   const btn = document.getElementById('s-btn'); btn.disabled = true;
-  const ok = await registrarSaida({productCode, qty, motivo});
+  const ok = await registrarSaida({productCode, qty, motivo, obs});
   btn.disabled = false;
   if(!ok){ showToast('Estoque insuficiente para essa saída.'); return; }
   showToast('Saída registrada.');
